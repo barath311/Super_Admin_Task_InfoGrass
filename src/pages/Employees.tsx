@@ -1,8 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { Employee } from '../types';
 import { employeeApi } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { Plus, Edit2, Trash2, X } from 'lucide-react';
+
+interface Employee {
+  id?: number;
+  employeeName: string;
+  employeeSalary: number;
+  employeeLocation: string;
+}
 
 export const Employees: React.FC = () => {
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -10,14 +16,13 @@ export const Employees: React.FC = () => {
   const [error, setError] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
-  const { hasPermission } = useAuth();
-
   const [formData, setFormData] = useState<Employee>({
-    name: '',
-    email: '',
-    department: '',
-    salary: 0,
+    employeeName: '',
+    employeeSalary: 0,
+    employeeLocation: '',
   });
+
+  const { hasPermission } = useAuth();
 
   useEffect(() => {
     loadEmployees();
@@ -40,61 +45,47 @@ export const Employees: React.FC = () => {
     e.preventDefault();
     try {
       if (editingEmployee?.id) {
-        if (!hasPermission('PUT')) {
-          setError('You do not have permission to update employees');
-          return;
-        }
+        if (!hasPermission('UPDATE'))
+          return setError('You do not have permission to update employees');
         await employeeApi.update(editingEmployee.id, formData);
       } else {
-        if (!hasPermission('POST')) {
-          setError('You do not have permission to add employees');
-          return;
-        }
+        if (!hasPermission('UPDATE'))
+          return setError('You do not have permission to add employees');
         await employeeApi.create(formData);
       }
-      setShowModal(false);
-      setEditingEmployee(null);
-      setFormData({ name: '', email: '', department: '', salary: 0 });
-      loadEmployees();
+      closeModal();
+      await loadEmployees();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Operation failed');
     }
   };
 
-  const handleEdit = (employee: Employee) => {
-    if (!hasPermission('PUT')) {
-      setError('You do not have permission to update employees');
-      return;
+  const handleDelete = async (id: number) => {
+    if (!hasPermission('DELETE'))
+      return setError('You do not have permission to delete employees');
+    if (!window.confirm('Are you sure you want to delete this employee?')) return;
+    try {
+      await employeeApi.delete(id);
+      await loadEmployees();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete employee');
     }
+  };
+
+  const handleEdit = (employee: Employee) => {
+    if (!hasPermission('UPDATE'))
+      return setError('You do not have permission to update employees');
     setEditingEmployee(employee);
     setFormData(employee);
     setShowModal(true);
     setError('');
   };
 
-  const handleDelete = async (id: number) => {
-    if (!hasPermission('DELETE')) {
-      setError('You do not have permission to delete employees');
-      return;
-    }
-    if (!confirm('Are you sure you want to delete this employee?')) return;
-
-    try {
-      await employeeApi.delete(id);
-      loadEmployees();
-      setError('');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete employee');
-    }
-  };
-
   const handleAdd = () => {
-    if (!hasPermission('POST')) {
-      setError('You do not have permission to add employees');
-      return;
-    }
+    if (!hasPermission('UPDATE'))
+      return setError('You do not have permission to add employees');
     setEditingEmployee(null);
-    setFormData({ name: '', email: '', department: '', salary: 0 });
+    setFormData({ employeeName: '', employeeSalary: 0, employeeLocation: '' });
     setShowModal(true);
     setError('');
   };
@@ -102,7 +93,7 @@ export const Employees: React.FC = () => {
   const closeModal = () => {
     setShowModal(false);
     setEditingEmployee(null);
-    setFormData({ name: '', email: '', department: '', salary: 0 });
+    setFormData({ employeeName: '', employeeSalary: 0, employeeLocation: '' });
     setError('');
   };
 
@@ -118,7 +109,7 @@ export const Employees: React.FC = () => {
     <div>
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold text-slate-900">Employee Management</h1>
-        {hasPermission('POST') && (
+        {hasPermission('UPDATE') && (
           <button
             onClick={handleAdd}
             className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-lg hover:bg-slate-800 transition-colors"
@@ -141,11 +132,12 @@ export const Employees: React.FC = () => {
             <tr>
               <th className="px-6 py-4 text-left text-sm font-semibold text-slate-900">ID</th>
               <th className="px-6 py-4 text-left text-sm font-semibold text-slate-900">Name</th>
-              <th className="px-6 py-4 text-left text-sm font-semibold text-slate-900">Email</th>
-              <th className="px-6 py-4 text-left text-sm font-semibold text-slate-900">Department</th>
+              <th className="px-6 py-4 text-left text-sm font-semibold text-slate-900">Location</th>
               <th className="px-6 py-4 text-left text-sm font-semibold text-slate-900">Salary</th>
-              {(hasPermission('PUT') || hasPermission('DELETE')) && (
-                <th className="px-6 py-4 text-left text-sm font-semibold text-slate-900">Actions</th>
+              {(hasPermission('UPDATE') || hasPermission('DELETE')) && (
+                <th className="px-6 py-4 text-left text-sm font-semibold text-slate-900">
+                  Actions
+                </th>
               )}
             </tr>
           </thead>
@@ -153,14 +145,19 @@ export const Employees: React.FC = () => {
             {employees.map((employee) => (
               <tr key={employee.id} className="hover:bg-slate-50 transition-colors">
                 <td className="px-6 py-4 text-sm text-slate-900">{employee.id}</td>
-                <td className="px-6 py-4 text-sm font-medium text-slate-900">{employee.name}</td>
-                <td className="px-6 py-4 text-sm text-slate-600">{employee.email}</td>
-                <td className="px-6 py-4 text-sm text-slate-600">{employee.department}</td>
-                <td className="px-6 py-4 text-sm text-slate-900">${employee.salary.toLocaleString()}</td>
-                {(hasPermission('PUT') || hasPermission('DELETE')) && (
+                <td className="px-6 py-4 text-sm font-medium text-slate-900">
+                  {employee.employeeName}
+                </td>
+                <td className="px-6 py-4 text-sm text-slate-600">
+                  {employee.employeeLocation}
+                </td>
+                <td className="px-6 py-4 text-sm text-slate-900">
+                  ${employee.employeeSalary.toLocaleString()}
+                </td>
+                {(hasPermission('UPDATE') || hasPermission('DELETE')) && (
                   <td className="px-6 py-4 text-sm">
                     <div className="flex gap-2">
-                      {hasPermission('PUT') && (
+                      {hasPermission('UPDATE') && (
                         <button
                           onClick={() => handleEdit(employee)}
                           className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
@@ -211,30 +208,23 @@ export const Employees: React.FC = () => {
                 <label className="block text-sm font-medium text-slate-700 mb-2">Name</label>
                 <input
                   type="text"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  value={formData.employeeName}
+                  onChange={(e) =>
+                    setFormData({ ...formData, employeeName: e.target.value })
+                  }
                   required
                   className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-900 focus:border-transparent outline-none"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Email</label>
-                <input
-                  type="email"
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  required
-                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-900 focus:border-transparent outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Department</label>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Location</label>
                 <input
                   type="text"
-                  value={formData.department}
-                  onChange={(e) => setFormData({ ...formData, department: e.target.value })}
+                  value={formData.employeeLocation}
+                  onChange={(e) =>
+                    setFormData({ ...formData, employeeLocation: e.target.value })
+                  }
                   required
                   className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-900 focus:border-transparent outline-none"
                 />
@@ -244,8 +234,13 @@ export const Employees: React.FC = () => {
                 <label className="block text-sm font-medium text-slate-700 mb-2">Salary</label>
                 <input
                   type="number"
-                  value={formData.salary}
-                  onChange={(e) => setFormData({ ...formData, salary: Number(e.target.value) })}
+                  value={formData.employeeSalary}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      employeeSalary: Number(e.target.value),
+                    })
+                  }
                   required
                   min="0"
                   className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-900 focus:border-transparent outline-none"

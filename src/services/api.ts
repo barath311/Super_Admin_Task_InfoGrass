@@ -1,9 +1,12 @@
+// src/api/api.ts
 import { Employee, Permission } from '../types';
 
 const API_BASE_URL = 'http://localhost:8080';
 
+// Used only for login (Basic Auth)
 let authHeader = '';
 
+/* ---------------- UTILS ---------------- */
 export const setAuthHeader = (username: string, password: string) => {
   authHeader = 'Basic ' + btoa(`${username}:${password}`);
 };
@@ -12,24 +15,66 @@ export const clearAuthHeader = () => {
   authHeader = '';
 };
 
-const getHeaders = () => ({
-  'Content-Type': 'application/json',
-  'Authorization': authHeader,
-});
+const getHeaders = (includeAuth = true) => {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (includeAuth && authHeader) {
+    headers['Authorization'] = authHeader;
+  }
+  return headers;
+};
 
+// ✅ Always include credentials to send/receive cookies (JSESSIONID)
+const fetchWithAuth = (url: string, options: RequestInit = {}) =>
+  fetch(url, { ...options, headers: getHeaders(false), credentials: 'include' });
+
+/* ---------------- AUTH API ---------------- */
+export const authApi = {
+  login: async (username: string, password: string): Promise<{ username: string; role: string }> => {
+    setAuthHeader(username, password);
+
+    const response = await fetch(`${API_BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: getHeaders(true),
+      body: JSON.stringify({ username, password }),
+      credentials: 'include', // 🔥 Ensures session cookie is stored
+    });
+
+    if (!response.ok) {
+      throw new Error('Invalid credentials');
+    }
+
+    const data = await response.json();
+
+    // ✅ Clear Basic Auth (we now rely on the JSESSIONID cookie)
+    clearAuthHeader();
+
+    // ✅ Optional: store role locally to control UI access
+    localStorage.setItem('userRole', data.role);
+    localStorage.setItem('username', data.username);
+
+    return data;
+  },
+
+  logout: async (): Promise<void> => {
+    await fetchWithAuth(`${API_BASE_URL}/auth/logout`, { method: 'POST' });
+    localStorage.removeItem('userRole');
+    localStorage.removeItem('username');
+  },
+};
+
+/* ---------------- EMPLOYEE API ---------------- */
 export const employeeApi = {
   getAll: async (): Promise<Employee[]> => {
-    const response = await fetch(`${API_BASE_URL}/employees`, {
-      headers: getHeaders(),
-    });
+    const response = await fetchWithAuth(`${API_BASE_URL}/employees`);
     if (!response.ok) throw new Error('Failed to fetch employees');
     return response.json();
   },
 
   create: async (employee: Employee): Promise<Employee> => {
-    const response = await fetch(`${API_BASE_URL}/employees`, {
+    const response = await fetchWithAuth(`${API_BASE_URL}/employees`, {
       method: 'POST',
-      headers: getHeaders(),
       body: JSON.stringify(employee),
     });
     if (!response.ok) throw new Error('Failed to create employee');
@@ -37,9 +82,8 @@ export const employeeApi = {
   },
 
   update: async (id: number, employee: Employee): Promise<Employee> => {
-    const response = await fetch(`${API_BASE_URL}/employees/${id}`, {
+    const response = await fetchWithAuth(`${API_BASE_URL}/employees/${id}`, {
       method: 'PUT',
-      headers: getHeaders(),
       body: JSON.stringify(employee),
     });
     if (!response.ok) throw new Error('Failed to update employee');
@@ -47,60 +91,48 @@ export const employeeApi = {
   },
 
   delete: async (id: number): Promise<void> => {
-    const response = await fetch(`${API_BASE_URL}/employees/${id}`, {
+    const response = await fetchWithAuth(`${API_BASE_URL}/employees/${id}`, {
       method: 'DELETE',
-      headers: getHeaders(),
     });
     if (!response.ok) throw new Error('Failed to delete employee');
   },
 };
 
+/* ---------------- PERMISSION API ---------------- */
 export const permissionApi = {
-  getAll: async (): Promise<Permission[]> => {
-    const response = await fetch(`${API_BASE_URL}/permissions`, {
-      headers: getHeaders(),
+// ✅ Get all permissions
+getAll: async (): Promise<Permission[]> => {
+const response = await fetchWithAuth(`${API_BASE_URL}/permissions`);
+if (!response.ok) throw new Error('Failed to load permissions');
+return response.json();
+},
+
+// ✅ Create new permission (POST)
+create: async (permission: Permission): Promise<Permission> => {
+const response = await fetchWithAuth(`${API_BASE_URL}/permissions`, {
+method: 'POST',
+body: JSON.stringify(permission),
+});
+if (!response.ok) throw new Error('Failed to create permission');
+return response.json();
+},
+
+// ✅ Update existing permission (PUT)
+update: async (role: string, updatedPermission: Permission): Promise<Permission> => {
+    const response = await fetchWithAuth(`${API_BASE_URL}/permissions/${role}`, {
+      method: 'PUT',
+      body: JSON.stringify(updatedPermission),
     });
-    if (!response.ok) throw new Error('Failed to fetch permissions');
+    if (!response.ok) throw new Error('Failed to update permission');
     return response.json();
   },
 
-  create: async (permission: Permission): Promise<Permission> => {
-    const response = await fetch(`${API_BASE_URL}/permissions`, {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify(permission),
-    });
-    if (!response.ok) throw new Error('Failed to create permission');
-    return response.json();
-  },
-
-  delete: async (role: string, method: string): Promise<void> => {
-    const response = await fetch(`${API_BASE_URL}/permissions/${role}?method=${method}`, {
-      method: 'DELETE',
-      headers: getHeaders(),
-    });
-    if (!response.ok) throw new Error('Failed to delete permission');
-  },
+// ✅ Delete permission (optional)
+delete: async (role: string): Promise<void> => {
+const response = await fetchWithAuth(`${API_BASE_URL}/permissions/${role}`, {
+method: 'DELETE',
+});
+if (!response.ok) throw new Error('Failed to delete permission');
+},
 };
 
-export const authApi = {
-  login: async (username: string, password: string): Promise<{ role: string }> => {
-    setAuthHeader(username, password);
-    const response = await fetch(`${API_BASE_URL}/employees`, {
-      headers: getHeaders(),
-    });
-
-    if (response.status === 401 || response.status === 403) {
-      clearAuthHeader();
-      throw new Error('Invalid credentials');
-    }
-
-    if (!response.ok) {
-      clearAuthHeader();
-      throw new Error('Login failed');
-    }
-
-    const roleHeader = response.headers.get('X-User-Role');
-    return { role: roleHeader || 'USER' };
-  },
-};

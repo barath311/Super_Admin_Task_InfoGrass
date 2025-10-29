@@ -20,18 +20,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const loadPermissions = async (role: string) => {
     if (role === 'CEO') {
-      setPermissions(['GET', 'POST', 'PUT', 'DELETE']);
+      setPermissions(['VIEW', 'UPDATE', 'DELETE']);
       return;
     }
 
     try {
       const perms = await permissionApi.getAll();
-      const userPerms = perms
-        .filter(p => p.role === role)
-        .map(p => p.method);
-      setPermissions(userPerms.length > 0 ? userPerms : ['GET', 'POST']);
+      const rolePerm = perms.find((p: any) => p.role === role);
+
+      if (rolePerm) {
+        const allowed: string[] = [];
+        if (rolePerm.canView) allowed.push('VIEW');
+        if (rolePerm.canUpdate) allowed.push('UPDATE');
+        if (rolePerm.canDelete) allowed.push('DELETE');
+        setPermissions(allowed);
+      } else {
+        // Default to view-only if no entry found
+        setPermissions(['VIEW']);
+      }
     } catch (error) {
-      setPermissions(['GET', 'POST']);
+      console.error('Error loading permissions', error);
+      setPermissions(['VIEW']);
     }
   };
 
@@ -54,10 +63,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     clearAuthHeader();
   };
 
-  const hasPermission = (method: string): boolean => {
+  const hasPermission = (perm: string): boolean => {
     if (!user) return false;
     if (user.role === 'CEO') return true;
-    return permissions.includes(method);
+    return permissions.includes(perm);
   };
 
   return (
